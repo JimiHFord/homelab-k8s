@@ -153,8 +153,8 @@ jobs:
           # Wait for namespaces to be fully gone (not just Terminating)
           echo "Waiting for namespaces to be fully deleted..."
           for i in {1..60}; do
-            REMAINING=$(kubectl get ns $NAMESPACES 2>/dev/null | grep -v "^NAME" | wc -l || echo "0")
-            if [ "$REMAINING" -eq 0 ]; then
+            REMAINING=$(kubectl get ns $NAMESPACES 2>/dev/null | grep -v "^NAME" | wc -l | tr -d ' ')
+            if [ "${REMAINING:-0}" -eq 0 ]; then
               echo "All namespaces deleted"
               break
             fi
