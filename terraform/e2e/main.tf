@@ -82,6 +82,9 @@ provider "helm" {
 
 # Local values
 locals {
+  # Short run ID for k8s names (must be valid DNS label)
+  short_id = substr(var.run_id, 0, 8)
+  
   # Ephemeral hostnames for this run
   vault_hostname    = "vault-e2e-${var.run_id}.${var.domain}"
   keycloak_hostname = "sso-e2e-${var.run_id}.${var.domain}"
@@ -89,16 +92,69 @@ locals {
   grafana_hostname  = "grafana-e2e-${var.run_id}.${var.domain}"
   forgejo_hostname  = "forgejo-e2e-${var.run_id}.${var.domain}"
   
-  namespaces = ["cloudflared", "vault", "keycloak", "lldap", "grafana"]
+  # Namespaces include run_id for isolation (parallel-safe)
+  ns_cloudflared = "cfd-${local.short_id}"
+  ns_vault       = "vault-${local.short_id}"
+  ns_keycloak    = "kc-${local.short_id}"
+  ns_lldap       = "lldap-${local.short_id}"
+  ns_grafana     = "graf-${local.short_id}"
+  
+  all_namespaces = [
+    local.ns_cloudflared,
+    local.ns_vault,
+    local.ns_keycloak,
+    local.ns_lldap,
+    local.ns_grafana
+  ]
 }
 
-# Namespaces
-resource "kubernetes_namespace" "services" {
-  for_each = toset(local.namespaces)
+# Namespaces - each run gets isolated namespaces
+resource "kubernetes_namespace" "cloudflared" {
   metadata {
-    name = each.key
+    name = local.ns_cloudflared
     labels = {
       "e2e-run-id" = var.run_id
+      "app"        = "cloudflared"
+    }
+  }
+}
+
+resource "kubernetes_namespace" "vault" {
+  metadata {
+    name = local.ns_vault
+    labels = {
+      "e2e-run-id" = var.run_id
+      "app"        = "vault"
+    }
+  }
+}
+
+resource "kubernetes_namespace" "keycloak" {
+  metadata {
+    name = local.ns_keycloak
+    labels = {
+      "e2e-run-id" = var.run_id
+      "app"        = "keycloak"
+    }
+  }
+}
+
+resource "kubernetes_namespace" "lldap" {
+  metadata {
+    name = local.ns_lldap
+    labels = {
+      "e2e-run-id" = var.run_id
+      "app"        = "lldap"
+    }
+  }
+}
+
+resource "kubernetes_namespace" "grafana" {
+  metadata {
+    name = local.ns_grafana
+    labels = {
+      "e2e-run-id" = var.run_id
+      "app"        = "grafana"
     }
   }
 }
@@ -109,7 +165,7 @@ resource "kubernetes_namespace" "services" {
 resource "kubernetes_secret" "tunnel_token" {
   metadata {
     name      = "tunnel-credentials"
-    namespace = kubernetes_namespace.services["cloudflared"].metadata[0].name
+    namespace = kubernetes_namespace.cloudflared.metadata[0].name
   }
   data = {
     token = var.tunnel_token
@@ -119,7 +175,7 @@ resource "kubernetes_secret" "tunnel_token" {
 resource "kubernetes_config_map" "tunnel_config" {
   metadata {
     name      = "cloudflared-config"
-    namespace = kubernetes_namespace.services["cloudflared"].metadata[0].name
+    namespace = kubernetes_namespace.cloudflared.metadata[0].name
   }
   data = {
     "config.yaml" = yamlencode({
@@ -128,19 +184,19 @@ resource "kubernetes_config_map" "tunnel_config" {
       ingress = [
         {
           hostname = local.vault_hostname
-          service  = "http://vault.vault.svc.cluster.local:8200"
+          service  = "http://vault.${local.ns_vault}.svc.cluster.local:8200"
         },
         {
           hostname = local.keycloak_hostname
-          service  = "http://keycloak.keycloak.svc.cluster.local:8080"
+          service  = "http://keycloak.${local.ns_keycloak}.svc.cluster.local:8080"
         },
         {
           hostname = local.lldap_hostname
-          service  = "http://lldap.lldap.svc.cluster.local:17170"
+          service  = "http://lldap.${local.ns_lldap}.svc.cluster.local:17170"
         },
         {
           hostname = local.grafana_hostname
-          service  = "http://grafana.grafana.svc.cluster.local:3000"
+          service  = "http://grafana.${local.ns_grafana}.svc.cluster.local:3000"
         },
         {
           service = "http_status:404"
@@ -153,7 +209,7 @@ resource "kubernetes_config_map" "tunnel_config" {
 resource "kubernetes_deployment" "cloudflared" {
   metadata {
     name      = "cloudflared"
-    namespace = kubernetes_namespace.services["cloudflared"].metadata[0].name
+    namespace = kubernetes_namespace.cloudflared.metadata[0].name
   }
   spec {
     replicas = 1
@@ -208,7 +264,7 @@ resource "random_password" "lldap_jwt_secret" {
 resource "kubernetes_secret" "lldap_secrets" {
   metadata {
     name      = "lldap-secrets"
-    namespace = kubernetes_namespace.services["lldap"].metadata[0].name
+    namespace = kubernetes_namespace.lldap.metadata[0].name
   }
   data = {
     LLDAP_JWT_SECRET     = random_password.lldap_jwt_secret.result
@@ -219,7 +275,7 @@ resource "kubernetes_secret" "lldap_secrets" {
 resource "kubernetes_deployment" "lldap" {
   metadata {
     name      = "lldap"
-    namespace = kubernetes_namespace.services["lldap"].metadata[0].name
+    namespace = kubernetes_namespace.lldap.metadata[0].name
   }
   spec {
     replicas = 1
@@ -266,7 +322,7 @@ resource "kubernetes_deployment" "lldap" {
 resource "kubernetes_service" "lldap" {
   metadata {
     name      = "lldap"
-    namespace = kubernetes_namespace.services["lldap"].metadata[0].name
+    namespace = kubernetes_namespace.lldap.metadata[0].name
   }
   spec {
     selector = { app = "lldap" }
@@ -289,7 +345,7 @@ resource "kubernetes_service" "lldap" {
 resource "kubernetes_secret" "keycloak_admin" {
   metadata {
     name      = "keycloak-admin"
-    namespace = kubernetes_namespace.services["keycloak"].metadata[0].name
+    namespace = kubernetes_namespace.keycloak.metadata[0].name
   }
   data = {
     KEYCLOAK_ADMIN          = "admin"
@@ -300,7 +356,7 @@ resource "kubernetes_secret" "keycloak_admin" {
 resource "kubernetes_deployment" "keycloak" {
   metadata {
     name      = "keycloak"
-    namespace = kubernetes_namespace.services["keycloak"].metadata[0].name
+    namespace = kubernetes_namespace.keycloak.metadata[0].name
   }
   spec {
     replicas = 1
@@ -358,7 +414,7 @@ resource "kubernetes_deployment" "keycloak" {
 resource "kubernetes_service" "keycloak" {
   metadata {
     name      = "keycloak"
-    namespace = kubernetes_namespace.services["keycloak"].metadata[0].name
+    namespace = kubernetes_namespace.keycloak.metadata[0].name
   }
   spec {
     selector = { app = "keycloak" }
@@ -377,7 +433,7 @@ resource "helm_release" "vault" {
   repository = "https://helm.releases.hashicorp.com"
   chart      = "vault"
   version    = "0.27.0"
-  namespace  = kubernetes_namespace.services["vault"].metadata[0].name
+  namespace  = kubernetes_namespace.vault.metadata[0].name
   
   set {
     name  = "server.dev.enabled"
@@ -408,7 +464,7 @@ resource "helm_release" "grafana" {
   repository = "https://grafana.github.io/helm-charts"
   chart      = "grafana"
   version    = "7.3.0"
-  namespace  = kubernetes_namespace.services["grafana"].metadata[0].name
+  namespace  = kubernetes_namespace.grafana.metadata[0].name
   
   set {
     name  = "adminUser"
@@ -439,6 +495,11 @@ output "urls" {
     lldap    = "https://${local.lldap_hostname}"
     grafana  = "https://${local.grafana_hostname}"
   }
+}
+
+output "namespaces" {
+  description = "Namespaces created for this run (for cleanup)"
+  value       = local.all_namespaces
 }
 
 output "test_credentials" {

@@ -128,79 +128,6 @@ jobs:
           kubectl get nodes
           echo "kubeconfig=$HOME/.kube/e2e-test.yaml" >> $GITHUB_OUTPUT
 
-      - name: Clean cluster before deploy
-        env:
-          KUBECONFIG: ${{ steps.vm.outputs.kubeconfig }}
-        run: |
-          set +e  # Don't exit on errors
-          
-          echo "KUBECONFIG=$KUBECONFIG"
-          echo "Verifying kubectl connectivity..."
-          kubectl cluster-info || { echo "Cannot connect to cluster"; exit 1; }
-          
-          echo "Cleaning up any existing resources..."
-          NAMESPACES="vault keycloak lldap grafana cloudflared"
-          
-          # Check which namespaces exist
-          EXISTING=""
-          for ns in $NAMESPACES; do
-            if kubectl get ns $ns 2>/dev/null; then
-              EXISTING="$EXISTING $ns"
-            fi
-          done
-          
-          if [ -z "$EXISTING" ]; then
-            echo "No namespaces to clean up"
-            exit 0
-          fi
-          
-          echo "Namespaces to clean:$EXISTING"
-          
-          # Delete all resources in namespaces first (speeds up ns deletion)
-          for ns in $EXISTING; do
-            echo "Cleaning resources in $ns..."
-            kubectl delete all --all -n $ns --ignore-not-found --timeout=30s 2>/dev/null || true
-            kubectl delete pvc --all -n $ns --ignore-not-found 2>/dev/null || true
-            kubectl delete secrets --all -n $ns --ignore-not-found 2>/dev/null || true
-            kubectl delete configmaps --all -n $ns --ignore-not-found 2>/dev/null || true
-          done
-          
-          # Now delete namespaces
-          echo "Deleting namespaces..."
-          kubectl delete ns $EXISTING --ignore-not-found --timeout=120s 2>/dev/null || true
-          
-          # Wait for namespaces to be fully gone (not just Terminating)
-          echo "Waiting for namespaces to be fully deleted..."
-          for i in $(seq 1 30); do
-            REMAINING=0
-            for ns in $EXISTING; do
-              if kubectl get ns $ns 2>/dev/null >/dev/null; then
-                REMAINING=$((REMAINING + 1))
-              fi
-            done
-            
-            if [ "$REMAINING" -eq 0 ]; then
-              echo "All namespaces deleted"
-              exit 0
-            fi
-            echo "Still waiting... ($REMAINING namespaces remaining)"
-            sleep 3
-          done
-          
-          # Force remove stuck finalizers
-          echo "Forcing finalizer removal on stuck namespaces..."
-          for ns in $EXISTING; do
-            if kubectl get ns $ns 2>/dev/null; then
-              echo "Removing finalizers from $ns"
-              kubectl get ns $ns -o json 2>/dev/null | \
-                jq '.spec.finalizers = []' | \
-                kubectl replace --raw "/api/v1/namespaces/$ns/finalize" -f - 2>/dev/null || true
-            fi
-          done
-          sleep 5
-          
-          echo "Cluster cleanup complete"
-
       - name: Deploy infrastructure
         env:
           KUBECONFIG: ${{ steps.vm.outputs.kubeconfig }}
@@ -228,18 +155,22 @@ jobs:
         env:
           KUBECONFIG: ${{ steps.vm.outputs.kubeconfig }}
         run: |
-          echo "Waiting for all services to be ready..."
+          # Namespace names match terraform (first 8 chars of run_id)
+          SHORT_ID=$(echo "$RUN_ID" | cut -c1-8)
           
-          # Wait for deployments
-          for ns in vault keycloak lldap grafana; do
-            echo "Waiting for $ns..."
+          echo "Waiting for all services to be ready..."
+          echo "Short ID: $SHORT_ID"
+          
+          # Wait for deployments in namespaced namespaces
+          for ns in "vault-${SHORT_ID}" "kc-${SHORT_ID}" "lldap-${SHORT_ID}" "graf-${SHORT_ID}"; do
+            echo "Waiting for deployments in $ns..."
             kubectl wait --for=condition=available deployment --all -n $ns --timeout=300s || true
           done
           
           # Wait for tunnel connectivity
           for url in "$VAULT_URL" "$KEYCLOAK_URL" "$LLDAP_URL" "$GRAFANA_URL"; do
             echo "Checking $url..."
-            for i in {1..30}; do
+            for i in $(seq 1 30); do
               if curl -s -o /dev/null -w "%{http_code}" "$url" | grep -q "200\|302\|301"; then
                 echo "$url is ready"
                 break
@@ -319,15 +250,16 @@ jobs:
             curl -s -X DELETE \
               "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/cfd_tunnel/${TUNNEL_ID}/connections" \
               -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" || true
-            
             # Delete tunnel
             curl -s -X DELETE \
               "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/cfd_tunnel/${TUNNEL_ID}" \
               -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"
           fi
           
-          # 4. Clean up VM namespaces (optional - for fresh slate)
-          kubectl delete ns vault keycloak lldap grafana cloudflared --ignore-not-found || true
+          # 4. Clean up run-specific namespaces
+          SHORT_ID=$(echo "$RUN_ID" | cut -c1-8)
+          echo "Deleting namespaces for run $SHORT_ID..."
+          kubectl delete ns "cfd-${SHORT_ID}" "vault-${SHORT_ID}" "kc-${SHORT_ID}" "lldap-${SHORT_ID}" "graf-${SHORT_ID}" --ignore-not-found || true
           
           echo "=== CLEANUP COMPLETE ==="
 
