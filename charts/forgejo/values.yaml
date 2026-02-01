@@ -1,13 +1,15 @@
-# Forgejo Helm Chart Values
-# https://codeberg.org/forgejo-contrib/forgejo-helm
+# Gitea/Forgejo Helm Chart Values
+# Using Gitea chart with Forgejo image
+# https://gitea.com/gitea/helm-chart
 
 replicaCount: 1
 
 image:
   registry: codeberg.org
   repository: forgejo/forgejo
-  tag: ""  # Uses chart appVersion
+  tag: "10"
   pullPolicy: IfNotPresent
+  rootless: true
 
 service:
   http:
@@ -20,12 +22,12 @@ service:
     nodePort: 30022
 
 ingress:
-  enabled: false  # Using NodePort for simplicity
+  enabled: false
 
 persistence:
   enabled: true
   size: 10Gi
-  storageClass: "local-path"  # k3s default
+  storageClass: "local-path"
 
 gitea:
   admin:
@@ -54,24 +56,18 @@ gitea:
       TYPE: level
     
     repository:
-      ROOT: /data/git/repositories
       DEFAULT_BRANCH: main
     
     actions:
       ENABLED: true
-      DEFAULT_ACTIONS_URL: github  # Use GitHub actions syntax
+      DEFAULT_ACTIONS_URL: github
 
-    # Security
     security:
       INSTALL_LOCK: true
-      SECRET_KEY: ""  # Generated at install
-      INTERNAL_TOKEN: ""  # Generated at install
 
-    # Mailer (disabled for homelab)
     mailer:
       ENABLED: false
 
-# Resource limits for homelab
 resources:
   limits:
     cpu: 1000m
@@ -80,11 +76,9 @@ resources:
     cpu: 100m
     memory: 128Mi
 
-# Redis for caching (optional, disabled for simplicity)
 redis-cluster:
   enabled: false
 
-# PostgreSQL (disabled, using SQLite)
 postgresql:
   enabled: false
 postgresql-ha:

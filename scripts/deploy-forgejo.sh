@@ -33,13 +33,13 @@ if ! kubectl get secret forgejo-admin-secret -n "$NAMESPACE" >/dev/null 2>&1; th
     echo ""
 fi
 
-# Add Forgejo Helm repo
-helm repo add forgejo https://codeberg.org/forgejo-contrib/forgejo-helm 2>/dev/null || true
+# Add Gitea Helm repo (compatible with Forgejo)
+helm repo add gitea https://dl.gitea.com/charts/ 2>/dev/null || true
 helm repo update
 
-# Deploy/upgrade Forgejo
+# Deploy/upgrade Forgejo (using Gitea chart with Forgejo image)
 echo "📦 Installing Forgejo..."
-helm upgrade --install forgejo forgejo/forgejo \
+helm upgrade --install forgejo gitea/gitea \
     --namespace "$NAMESPACE" \
     --values "$REPO_DIR/charts/forgejo/values.yaml" \
     --wait \
