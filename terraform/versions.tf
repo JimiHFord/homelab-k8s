@@ -30,5 +30,9 @@ terraform {
       source  = "hashicorp/random"
       version = "~> 3.6"
     }
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.4"
+    }
   }
 }

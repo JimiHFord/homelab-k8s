@@ -54,6 +54,12 @@ variable "cloudflare_tunnel_id" {
   default     = "6e8a2363-c60c-469a-a94b-1fc1ecdade1a"
 }
 
+variable "tunnel_credentials_path" {
+  description = "Path to tunnel credentials JSON file"
+  type        = string
+  default     = "~/.cloudflared/6e8a2363-c60c-469a-a94b-1fc1ecdade1a.json"
+}
+
 # GCP
 variable "gcp_project" {
   description = "GCP project ID"
