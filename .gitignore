@@ -1,0 +1,9 @@
+# Secrets
+*.secret
+*-secret.yaml
+
+# Local config
+.env.local
+
+# macOS
+.DS_Store

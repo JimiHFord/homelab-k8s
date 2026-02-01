@@ -1,0 +1,91 @@
+# Forgejo Helm Chart Values
+# https://codeberg.org/forgejo-contrib/forgejo-helm
+
+replicaCount: 1
+
+image:
+  registry: codeberg.org
+  repository: forgejo/forgejo
+  tag: ""  # Uses chart appVersion
+  pullPolicy: IfNotPresent
+
+service:
+  http:
+    type: NodePort
+    port: 3000
+    nodePort: 30080
+  ssh:
+    type: NodePort
+    port: 22
+    nodePort: 30022
+
+ingress:
+  enabled: false  # Using NodePort for simplicity
+
+persistence:
+  enabled: true
+  size: 10Gi
+  storageClass: "local-path"  # k3s default
+
+gitea:
+  admin:
+    existingSecret: forgejo-admin-secret
+  
+  config:
+    APP_NAME: "Jimi's Forge"
+    
+    server:
+      DOMAIN: localhost
+      ROOT_URL: http://localhost:30080/
+      SSH_PORT: 30022
+      SSH_LISTEN_PORT: 22
+      LFS_START_SERVER: true
+    
+    database:
+      DB_TYPE: sqlite3
+    
+    session:
+      PROVIDER: file
+    
+    cache:
+      ADAPTER: memory
+    
+    queue:
+      TYPE: level
+    
+    repository:
+      ROOT: /data/git/repositories
+      DEFAULT_BRANCH: main
+    
+    actions:
+      ENABLED: true
+      DEFAULT_ACTIONS_URL: github  # Use GitHub actions syntax
+
+    # Security
+    security:
+      INSTALL_LOCK: true
+      SECRET_KEY: ""  # Generated at install
+      INTERNAL_TOKEN: ""  # Generated at install
+
+    # Mailer (disabled for homelab)
+    mailer:
+      ENABLED: false
+
+# Resource limits for homelab
+resources:
+  limits:
+    cpu: 1000m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# Redis for caching (optional, disabled for simplicity)
+redis-cluster:
+  enabled: false
+
+# PostgreSQL (disabled, using SQLite)
+postgresql:
+  enabled: false
+postgresql-ha:
+  enabled: false
