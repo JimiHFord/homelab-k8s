@@ -37,9 +37,10 @@ gitea:
     APP_NAME: "Jimi's Forge"
     
     server:
-      DOMAIN: localhost
-      ROOT_URL: http://localhost:30080/
-      SSH_PORT: 30022
+      DOMAIN: forgejo.fords.cloud
+      ROOT_URL: https://forgejo.fords.cloud/
+      SSH_DOMAIN: forgejo.fords.cloud
+      SSH_PORT: 22
       SSH_LISTEN_PORT: 22
       LFS_START_SERVER: true
     
