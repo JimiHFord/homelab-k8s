@@ -57,3 +57,10 @@ echo "🔑 SSH clone via: ssh://git@localhost:30022/<owner>/<repo>.git"
 echo ""
 echo "📋 Get admin password:"
 echo "   kubectl get secret forgejo-admin-secret -n forgejo -o jsonpath='{.data.password}' | base64 -d"
+
+# Deploy cloudflared tunnel (if manifest exists)
+if [ -f "$REPO_DIR/manifests/cloudflared.yaml" ]; then
+    echo "🌐 Deploying Cloudflare tunnel..."
+    kubectl apply -f "$REPO_DIR/manifests/cloudflared.yaml"
+    kubectl wait --for=condition=ready pod -l app=cloudflared -n cloudflared --timeout=60s
+fi
