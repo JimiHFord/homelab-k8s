@@ -28,14 +28,29 @@ helm repo update
 
 ## Components
 
+| Service | URL | Description |
+|---------|-----|-------------|
+| Forgejo | https://forgejo.fords.cloud | Git forge |
+| Grafana | https://grafana.fords.cloud | Dashboards |
+| Vault | https://vault.fords.cloud | Secrets management |
+| Keycloak | https://sso.fords.cloud | SSO/Identity |
+| OpenClaw | https://claw.fords.cloud | AI assistant gateway |
+
 ### Forgejo
 
 Self-hosted Git forge (Gitea fork). Deployed via Helm with:
 - Persistent storage via local-path provisioner
-- NodePort service for access
+- Exposed via Cloudflare tunnel
 - SQLite database (suitable for single-node homelab)
 
-Access: http://localhost:30080
+### Vault
+
+HashiCorp Vault for secrets management. Features:
+- Auto-unseal via GCP KMS (no manual intervention on restart)
+- KV v2 secrets engine enabled at `secret/`
+- Web UI available
+
+See [docs/vault.md](docs/vault.md) for usage guide.
 
 ### Forgejo Runner
 
@@ -49,6 +64,8 @@ Native runner on Mac mini for CI/CD. Runs outside the cluster for:
 ```
 ├── charts/
 │   └── forgejo/          # Forgejo Helm values
+├── docs/
+│   └── vault.md          # Vault usage guide
 ├── manifests/            # Raw K8s manifests
 ├── scripts/
 │   ├── deploy-forgejo.sh # Deploy/upgrade Forgejo
