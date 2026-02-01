@@ -34,7 +34,6 @@ resource "keycloak_ldap_user_federation" "lldap" {
   full_sync_period          = -1
   changed_sync_period       = -1
   trust_email               = true
-  connection_pooling        = true
 }
 
 resource "keycloak_ldap_user_attribute_mapper" "username" {

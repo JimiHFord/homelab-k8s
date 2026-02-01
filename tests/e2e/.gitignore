@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+
+# Auth state - contains session tokens
+fixtures/.auth/
+
+# Environment files
+.env
+.env.local
+
+# OS
+.DS_Store

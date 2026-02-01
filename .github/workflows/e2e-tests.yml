@@ -1,0 +1,112 @@
+name: E2E Tests
+
+on:
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to test'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+  
+  # Scheduled - run nightly
+  schedule:
+    - cron: '0 6 * * *'  # 6 AM UTC daily
+  
+  # On push to main (optional - enable if you want)
+  # push:
+  #   branches: [main]
+  #   paths:
+  #     - 'tests/e2e/**'
+  #     - 'manifests/**'
+  #     - 'terraform/**'
+
+jobs:
+  smoke-tests:
+    name: Smoke Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: tests/e2e/package-lock.json
+      
+      - name: Install dependencies
+        working-directory: tests/e2e
+        run: npm ci
+      
+      - name: Install Playwright browsers
+        working-directory: tests/e2e
+        run: npx playwright install --with-deps chromium
+      
+      - name: Run smoke tests
+        working-directory: tests/e2e
+        run: npx playwright test --project=smoke
+        env:
+          CI: true
+      
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: smoke-test-results
+          path: tests/e2e/test-results/
+          retention-days: 7
+
+  e2e-tests:
+    name: Full E2E Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: smoke-tests  # Only run if smoke tests pass
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: tests/e2e/package-lock.json
+      
+      - name: Install dependencies
+        working-directory: tests/e2e
+        run: npm ci
+      
+      - name: Install Playwright browsers
+        working-directory: tests/e2e
+        run: npx playwright install --with-deps chromium
+      
+      - name: Run E2E tests
+        working-directory: tests/e2e
+        run: npx playwright test --project=setup --project=chromium
+        env:
+          CI: true
+          TEST_USERNAME: ${{ secrets.TEST_USERNAME }}
+          TEST_PASSWORD: ${{ secrets.TEST_PASSWORD }}
+          LLDAP_ADMIN_PASSWORD: ${{ secrets.LLDAP_ADMIN_PASSWORD }}
+          FORGEJO_PASSWORD: ${{ secrets.FORGEJO_PASSWORD }}
+      
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-test-results
+          path: |
+            tests/e2e/test-results/
+            tests/e2e/playwright-report/
+          retention-days: 30
+      
+      - name: Deploy test report
+        if: always()
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: tests/e2e/playwright-report
+          destination_dir: e2e-report

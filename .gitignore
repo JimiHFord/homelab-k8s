@@ -17,3 +17,10 @@ terraform/terraform.tfvars
 terraform/*.auto.tfvars
 terraform/crash.log
 terraform/*.tfplan
+
+# Terraform
+.terraform/
+terraform.tfstate*
+*.tfstate*
+crash.log
+crash.*.log
