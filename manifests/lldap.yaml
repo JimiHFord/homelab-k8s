@@ -1,0 +1,98 @@
+# LLDAP - Lightweight LDAP Server
+#
+# SECRETS REQUIRED (create before applying):
+#   JWT_SECRET=$(openssl rand -base64 32)
+#   ADMIN_PASS=$(openssl rand -base64 16 | tr -d '=+/')
+#   
+#   kubectl create secret generic lldap-secrets \
+#     --namespace=lldap \
+#     --from-literal=LLDAP_JWT_SECRET="$JWT_SECRET" \
+#     --from-literal=LLDAP_LDAP_USER_PASS="$ADMIN_PASS"
+#
+# After deploy:
+#   - Web UI: https://ldap.fords.cloud
+#   - Login: admin / <ADMIN_PASS from secret>
+#   - Base DN: dc=fords,dc=cloud
+#
+# Credentials stored in Bitwarden: "LLDAP Admin"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lldap
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: lldap-data
+  namespace: lldap
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lldap
+  namespace: lldap
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lldap
+  template:
+    metadata:
+      labels:
+        app: lldap
+    spec:
+      containers:
+      - name: lldap
+        image: lldap/lldap:stable
+        ports:
+        - containerPort: 17170
+          name: http
+        - containerPort: 3890
+          name: ldap
+        env:
+        - name: LLDAP_LDAP_BASE_DN
+          value: "dc=fords,dc=cloud"
+        - name: LLDAP_HTTP_URL
+          value: "https://ldap.fords.cloud"
+        - name: TZ
+          value: "America/New_York"
+        envFrom:
+        - secretRef:
+            name: lldap-secrets
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: lldap-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lldap
+  namespace: lldap
+spec:
+  selector:
+    app: lldap
+  ports:
+  - name: http
+    port: 17170
+    targetPort: 17170
+  - name: ldap
+    port: 389
+    targetPort: 3890

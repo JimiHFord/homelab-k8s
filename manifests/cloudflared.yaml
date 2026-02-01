@@ -1,16 +1,22 @@
+# Cloudflare Tunnel - routes public hostnames to internal services
+# 
+# SECRETS REQUIRED (create before applying):
+#   kubectl create secret generic cloudflared-creds \
+#     --namespace=cloudflared \
+#     --from-file=credentials.json=~/.cloudflared/<TUNNEL_ID>.json
+#
+# Credentials stored in: ~/.cloudflared/6e8a2363-c60c-469a-a94b-1fc1ecdade1a.json
+# Tunnel ID: 6e8a2363-c60c-469a-a94b-1fc1ecdade1a
+#
+# To add new hostnames:
+#   1. Add ingress rule below
+#   2. Apply this manifest
+#   3. Run: cloudflared tunnel route dns <TUNNEL_ID> <hostname>
+---
 apiVersion: v1
 kind: Namespace
 metadata:
   name: cloudflared
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: cloudflared-creds
-  namespace: cloudflared
-type: Opaque
-data:
-  credentials.json: eyJBY2NvdW50VGFnIjoiNzdiNWU3NmMzNzJkNTUxNDdkYzQxMjBlMGZhMThhZjUiLCJUdW5uZWxTZWNyZXQiOiJUMFBvajN5UVVaZDdGc1RTRWd2dUZ2OVZDR29vK1U3ekFhR1RkQ3ptRWZNPSIsIlR1bm5lbElEIjoiNmU4YTIzNjMtYzYwYy00NjlhLWE5NGItMWZjMWVjZGFkZTFhIiwiRW5kcG9pbnQiOiIifQ==
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -33,6 +39,8 @@ data:
         service: http://vault.vault.svc.cluster.local:8200
       - hostname: sso.fords.cloud
         service: http://keycloak.keycloak.svc.cluster.local:8080
+      - hostname: ldap.fords.cloud
+        service: http://lldap.lldap.svc.cluster.local:17170
       - service: http_status:404
 ---
 apiVersion: apps/v1
@@ -54,23 +62,30 @@ spec:
       - name: cloudflared
         image: cloudflare/cloudflared:latest
         args:
-          - tunnel
-          - --config
-          - /etc/cloudflared/config.yaml
-          - run
+        - tunnel
+        - --config
+        - /etc/cloudflared/config.yaml
+        - run
         volumeMounts:
-          - name: config
-            mountPath: /etc/cloudflared/config.yaml
-            subPath: config.yaml
-            readOnly: true
-          - name: creds
-            mountPath: /etc/cloudflared/credentials.json
-            subPath: credentials.json
-            readOnly: true
-      volumes:
         - name: config
-          configMap:
-            name: cloudflared-config
-        - name: creds
-          secret:
-            secretName: cloudflared-creds
+          mountPath: /etc/cloudflared/config.yaml
+          subPath: config.yaml
+          readOnly: true
+        - name: credentials
+          mountPath: /etc/cloudflared/credentials.json
+          subPath: credentials.json
+          readOnly: true
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+      volumes:
+      - name: config
+        configMap:
+          name: cloudflared-config
+      - name: credentials
+        secret:
+          secretName: cloudflared-creds

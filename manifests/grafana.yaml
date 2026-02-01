@@ -1,3 +1,14 @@
+# Grafana - Monitoring Dashboard
+#
+# SECRETS REQUIRED (create before applying):
+#   ADMIN_PASS=$(openssl rand -base64 16 | tr -d '=+/')
+#   
+#   kubectl create secret generic grafana-admin \
+#     --namespace=grafana \
+#     --from-literal=password="$ADMIN_PASS"
+#
+# Default login: admin / <ADMIN_PASS from secret>
+---
 apiVersion: v1
 kind: Namespace
 metadata:

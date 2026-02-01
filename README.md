@@ -65,13 +65,25 @@ Native runner on Mac mini for CI/CD. Runs outside the cluster for:
 ├── charts/
 │   └── forgejo/          # Forgejo Helm values
 ├── docs/
+│   ├── setup.md          # Full setup guide
 │   └── vault.md          # Vault usage guide
-├── manifests/            # Raw K8s manifests
+├── manifests/
+│   ├── cloudflared.yaml  # Cloudflare tunnel ingress
+│   ├── grafana.yaml      # Monitoring dashboard
+│   ├── keycloak.yaml     # Identity provider
+│   ├── lldap.yaml        # LDAP directory
+│   └── vault.yaml        # Secrets management
 ├── scripts/
 │   ├── deploy-forgejo.sh # Deploy/upgrade Forgejo
 │   └── setup-runner.sh   # Set up native runner
 └── README.md
 ```
+
+## Secrets
+
+**Do not commit secrets to git.** All secrets are stored in Bitwarden (folder: "OpenClaw").
+
+Each manifest documents required secrets in its header comments. See [docs/setup.md](docs/setup.md) for complete setup instructions.
 
 ## Backup
 

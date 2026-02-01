@@ -1,3 +1,23 @@
+# HashiCorp Vault - Secrets Management
+#
+# SECRETS REQUIRED (create before applying):
+#   kubectl create secret generic vault-gcp-creds \
+#     --namespace=vault \
+#     --from-file=credentials.json=/path/to/gcp-service-account.json
+#
+# GCP KMS Setup (for auto-unseal):
+#   Project: gcp-lab-475404
+#   Region: us-east1
+#   Keyring: vault-unseal
+#   Key: vault-key
+#   Service Account: vault-unseal@gcp-lab-475404.iam.gserviceaccount.com
+#
+# After first deploy:
+#   1. Initialize: kubectl exec -n vault <pod> -- vault operator init
+#   2. If migrating from Shamir: vault operator unseal -migrate <key>
+#
+# Credentials stored in Bitwarden: "HashiCorp Vault (Mac mini k8s)"
+---
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -11,10 +31,9 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
-  storageClassName: local-path
   resources:
     requests:
-      storage: 5Gi
+      storage: 1Gi
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -25,16 +44,23 @@ data:
   vault.hcl: |
     ui = true
     disable_mlock = true
-    
+
     listener "tcp" {
       address = "0.0.0.0:8200"
       tls_disable = true
     }
-    
+
     storage "file" {
       path = "/vault/data"
     }
-    
+
+    seal "gcpckms" {
+      project     = "gcp-lab-475404"
+      region      = "us-east1"
+      key_ring    = "vault-unseal"
+      crypto_key  = "vault-key"
+    }
+
     api_addr = "https://vault.fords.cloud"
 ---
 apiVersion: apps/v1
@@ -53,25 +79,30 @@ spec:
         app: vault
     spec:
       securityContext:
-        fsGroup: 1000
         runAsUser: 1000
+        fsGroup: 1000
       containers:
       - name: vault
         image: hashicorp/vault:latest
         command: ["vault", "server", "-config=/vault/config/vault.hcl"]
-        ports:
-        - containerPort: 8200
-          name: http
         env:
         - name: VAULT_ADDR
           value: "http://127.0.0.1:8200"
         - name: VAULT_API_ADDR
           value: "https://vault.fords.cloud"
+        - name: GOOGLE_APPLICATION_CREDENTIALS
+          value: "/vault/gcp/credentials.json"
+        ports:
+        - containerPort: 8200
+          name: http
         volumeMounts:
         - name: vault-storage
           mountPath: /vault/data
         - name: vault-config
           mountPath: /vault/config
+        - name: gcp-creds
+          mountPath: /vault/gcp
+          readOnly: true
         resources:
           requests:
             cpu: 100m
@@ -81,13 +112,13 @@ spec:
             memory: 256Mi
         livenessProbe:
           httpGet:
-            path: /v1/sys/health?standbyok=true
+            path: /v1/sys/health?standbyok=true&sealedcode=200
             port: 8200
           initialDelaySeconds: 30
           periodSeconds: 10
         readinessProbe:
           httpGet:
-            path: /v1/sys/health?standbyok=true
+            path: /v1/sys/health?standbyok=true&sealedcode=200
             port: 8200
           initialDelaySeconds: 10
           periodSeconds: 5
@@ -98,6 +129,9 @@ spec:
       - name: vault-config
         configMap:
           name: vault-config
+      - name: gcp-creds
+        secret:
+          secretName: vault-gcp-creds
 ---
 apiVersion: v1
 kind: Service
