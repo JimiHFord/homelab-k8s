@@ -132,49 +132,74 @@ jobs:
         env:
           KUBECONFIG: ${{ steps.vm.outputs.kubeconfig }}
         run: |
-          echo "Cleaning up any existing resources..."
+          set +e  # Don't exit on errors
           
+          echo "KUBECONFIG=$KUBECONFIG"
+          echo "Verifying kubectl connectivity..."
+          kubectl cluster-info || { echo "Cannot connect to cluster"; exit 1; }
+          
+          echo "Cleaning up any existing resources..."
           NAMESPACES="vault keycloak lldap grafana cloudflared"
           
-          # Delete all resources in namespaces first (speeds up ns deletion)
+          # Check which namespaces exist
+          EXISTING=""
           for ns in $NAMESPACES; do
             if kubectl get ns $ns 2>/dev/null; then
-              echo "Cleaning resources in $ns..."
-              kubectl delete all --all -n $ns --ignore-not-found --timeout=30s || true
-              kubectl delete pvc --all -n $ns --ignore-not-found || true
-              kubectl delete secrets --all -n $ns --ignore-not-found || true
-              kubectl delete configmaps --all -n $ns --ignore-not-found || true
+              EXISTING="$EXISTING $ns"
             fi
+          done
+          
+          if [ -z "$EXISTING" ]; then
+            echo "No namespaces to clean up"
+            exit 0
+          fi
+          
+          echo "Namespaces to clean:$EXISTING"
+          
+          # Delete all resources in namespaces first (speeds up ns deletion)
+          for ns in $EXISTING; do
+            echo "Cleaning resources in $ns..."
+            kubectl delete all --all -n $ns --ignore-not-found --timeout=30s 2>/dev/null || true
+            kubectl delete pvc --all -n $ns --ignore-not-found 2>/dev/null || true
+            kubectl delete secrets --all -n $ns --ignore-not-found 2>/dev/null || true
+            kubectl delete configmaps --all -n $ns --ignore-not-found 2>/dev/null || true
           done
           
           # Now delete namespaces
-          kubectl delete ns $NAMESPACES --ignore-not-found --timeout=120s || true
+          echo "Deleting namespaces..."
+          kubectl delete ns $EXISTING --ignore-not-found --timeout=120s 2>/dev/null || true
           
           # Wait for namespaces to be fully gone (not just Terminating)
           echo "Waiting for namespaces to be fully deleted..."
-          for i in {1..60}; do
-            REMAINING=$(kubectl get ns $NAMESPACES 2>/dev/null | grep -v "^NAME" | wc -l | tr -d ' ')
-            if [ "${REMAINING:-0}" -eq 0 ]; then
+          for i in $(seq 1 30); do
+            REMAINING=0
+            for ns in $EXISTING; do
+              if kubectl get ns $ns 2>/dev/null >/dev/null; then
+                REMAINING=$((REMAINING + 1))
+              fi
+            done
+            
+            if [ "$REMAINING" -eq 0 ]; then
               echo "All namespaces deleted"
-              break
+              exit 0
             fi
             echo "Still waiting... ($REMAINING namespaces remaining)"
-            kubectl get ns $NAMESPACES 2>/dev/null || true
             sleep 3
           done
           
-          # Final verification
-          if kubectl get ns $NAMESPACES 2>/dev/null | grep -v "^NAME"; then
-            echo "WARNING: Some namespaces still exist, forcing finalizer removal..."
-            for ns in $NAMESPACES; do
+          # Force remove stuck finalizers
+          echo "Forcing finalizer removal on stuck namespaces..."
+          for ns in $EXISTING; do
+            if kubectl get ns $ns 2>/dev/null; then
+              echo "Removing finalizers from $ns"
               kubectl get ns $ns -o json 2>/dev/null | \
                 jq '.spec.finalizers = []' | \
                 kubectl replace --raw "/api/v1/namespaces/$ns/finalize" -f - 2>/dev/null || true
-            done
-            sleep 5
-          fi
+            fi
+          done
+          sleep 5
           
-          echo "Cluster clean"
+          echo "Cluster cleanup complete"
 
       - name: Deploy infrastructure
         env:
