@@ -5,11 +5,11 @@
 replicaCount: 1
 
 image:
-  registry: codeberg.org
-  repository: forgejo/forgejo
-  tag: "10"
+  registry: docker.io
+  repository: xuglar/forgejo
+  tag: "latest"
   pullPolicy: IfNotPresent
-  rootless: true
+  rootless: false  # xuglar image is not rootless
 
 service:
   http:
