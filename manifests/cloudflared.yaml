@@ -31,6 +31,8 @@ data:
         service: http://grafana.grafana.svc.cluster.local:3000
       - hostname: vault.fords.cloud
         service: http://vault.vault.svc.cluster.local:8200
+      - hostname: sso.fords.cloud
+        service: http://keycloak.keycloak.svc.cluster.local:8080
       - service: http_status:404
 ---
 apiVersion: apps/v1
