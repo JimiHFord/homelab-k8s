@@ -2,6 +2,29 @@
 
 Complete setup guide for the Mac mini k8s homelab.
 
+## Quick Start (Automated)
+
+If you have secrets in Bitwarden:
+
+```bash
+# Unlock Bitwarden
+export BW_SESSION=$(bw unlock --raw)
+
+# Run full setup
+./scripts/setup-all.sh --bitwarden
+```
+
+Or with environment variables:
+
+```bash
+export KC_ADMIN_PASS="xxx"
+export LLDAP_ADMIN_PASS="xxx"  
+export VAULT_TOKEN="xxx"
+export VAULT_OIDC_SECRET="xxx"
+
+./scripts/setup-all.sh
+```
+
 ## Prerequisites
 
 ```bash
@@ -286,3 +309,46 @@ kubectl logs -n keycloak -l app=keycloak | grep -i ldap
 kubectl logs -n cloudflared -l app=cloudflared
 # Check tunnel registration and ingress rules
 ```
+
+---
+
+## Automation Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `setup-all.sh` | Full deployment + configuration |
+| `configure-keycloak.sh` | LDAP federation + Vault client |
+| `configure-vault-oidc.sh` | Vault OIDC auth setup |
+| `deploy-forgejo.sh` | Forgejo Helm deployment |
+
+### Environment Variables
+
+| Variable | Description | Required By |
+|----------|-------------|-------------|
+| `KC_ADMIN_USER` | Keycloak admin username (default: admin) | configure-keycloak.sh |
+| `KC_ADMIN_PASS` | Keycloak admin password | configure-keycloak.sh |
+| `LLDAP_ADMIN_PASS` | LLDAP bind password | configure-keycloak.sh |
+| `VAULT_TOKEN` | Vault root/admin token | configure-vault-oidc.sh |
+| `VAULT_OIDC_SECRET` | Keycloak client secret | configure-vault-oidc.sh |
+| `BW_SESSION` | Bitwarden session key | setup-all.sh --bitwarden |
+
+### Using with Bitwarden
+
+The scripts can pull secrets from Bitwarden automatically:
+
+```bash
+# Login to Bitwarden
+bw login
+
+# Unlock and export session
+export BW_SESSION=$(bw unlock --raw)
+
+# Run with --bitwarden flag
+./scripts/setup-all.sh --bitwarden
+```
+
+Required Bitwarden items (in "OpenClaw" folder):
+- "Keycloak Admin" - login with password
+- "LLDAP Admin" - login with password  
+- "HashiCorp Vault (Mac mini k8s)" - secure note with root token
+- "Vault OIDC Client (Keycloak)" - login with client secret as password
