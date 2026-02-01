@@ -128,6 +128,22 @@ jobs:
           kubectl get nodes
           echo "kubeconfig=$HOME/.kube/e2e-test.yaml" >> $GITHUB_OUTPUT
 
+      - name: Clean cluster before deploy
+        env:
+          KUBECONFIG: ${{ steps.vm.outputs.kubeconfig }}
+        run: |
+          echo "Cleaning up any existing resources..."
+          kubectl delete ns vault keycloak lldap grafana cloudflared --ignore-not-found --wait=false
+          
+          # Wait for namespaces to be fully deleted
+          for ns in vault keycloak lldap grafana cloudflared; do
+            while kubectl get ns $ns 2>/dev/null; do
+              echo "Waiting for $ns to be deleted..."
+              sleep 2
+            done
+          done
+          echo "Cluster clean"
+
       - name: Deploy infrastructure
         env:
           KUBECONFIG: ${{ steps.vm.outputs.kubeconfig }}
@@ -135,6 +151,9 @@ jobs:
           TUNNEL_ID: ${{ steps.tunnel.outputs.tunnel_id }}
         run: |
           cd terraform/e2e
+          
+          # Clean any stale state
+          rm -rf .terraform terraform.tfstate* .terraform.lock.hcl
           
           # Initialize OpenTofu
           tofu init
