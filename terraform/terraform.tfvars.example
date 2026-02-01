@@ -1,0 +1,29 @@
+# Example terraform.tfvars
+# Copy to terraform.tfvars and fill in your values
+# NEVER commit terraform.tfvars to git!
+
+# Kubernetes
+kubeconfig_path    = "~/.kube/config"
+kubeconfig_context = "colima"
+
+# Domain
+domain = "fords.cloud"
+
+# Keycloak (for initial bootstrap, use env vars after)
+keycloak_admin_password = "CHANGE_ME"
+
+# LLDAP
+lldap_admin_password = "CHANGE_ME"
+lldap_base_dn        = "dc=fords,dc=cloud"
+
+# Cloudflare
+cloudflare_zone_id    = "YOUR_ZONE_ID"
+cloudflare_account_id = "YOUR_ACCOUNT_ID"
+cloudflare_tunnel_id  = "6e8a2363-c60c-469a-a94b-1fc1ecdade1a"
+
+# GCP
+gcp_project = "gcp-lab-475404"
+gcp_region  = "us-east1"
+
+# Vault
+vault_addr = "https://vault.fords.cloud"

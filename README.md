@@ -65,19 +65,43 @@ Native runner on Mac mini for CI/CD. Runs outside the cluster for:
 ├── charts/
 │   └── forgejo/          # Forgejo Helm values
 ├── docs/
-│   ├── setup.md          # Full setup guide
+│   ├── setup.md          # Full setup guide (manual + scripts)
 │   └── vault.md          # Vault usage guide
-├── manifests/
-│   ├── cloudflared.yaml  # Cloudflare tunnel ingress
-│   ├── grafana.yaml      # Monitoring dashboard
-│   ├── keycloak.yaml     # Identity provider
-│   ├── lldap.yaml        # LDAP directory
-│   └── vault.yaml        # Secrets management
-├── scripts/
-│   ├── deploy-forgejo.sh # Deploy/upgrade Forgejo
-│   └── setup-runner.sh   # Set up native runner
+├── manifests/            # Raw K8s manifests (legacy, use terraform/)
+│   ├── cloudflared.yaml
+│   ├── grafana.yaml
+│   ├── keycloak.yaml
+│   ├── lldap.yaml
+│   └── vault.yaml
+├── scripts/              # Automation scripts
+│   ├── configure-keycloak.sh
+│   ├── configure-vault-oidc.sh
+│   ├── deploy-forgejo.sh
+│   └── setup-all.sh
+├── terraform/            # Infrastructure-as-Code (recommended)
+│   ├── kubernetes.tf     # K8s resources
+│   ├── helm.tf           # Helm releases
+│   ├── keycloak.tf       # Keycloak config
+│   ├── vault.tf          # Vault config
+│   └── modules/          # Reusable modules
 └── README.md
 ```
+
+## Infrastructure-as-Code
+
+The recommended way to deploy is via OpenTofu/Terraform:
+
+```bash
+cd terraform
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars
+
+tofu init
+tofu plan
+tofu apply
+```
+
+See [terraform/README.md](terraform/README.md) for details.
 
 ## Secrets
 

@@ -7,3 +7,13 @@
 
 # macOS
 .DS_Store
+
+# Terraform/OpenTofu
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+terraform/terraform.tfvars
+terraform/*.auto.tfvars
+terraform/crash.log
+terraform/*.tfplan
