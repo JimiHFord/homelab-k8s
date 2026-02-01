@@ -193,13 +193,35 @@ How apps/users prove identity to get tokens:
 
 | Method | Use Case |
 |--------|----------|
-| **Token** | Direct token (what we use now) |
+| **Token** | Direct token |
+| **OIDC** | SSO via Keycloak ✅ (configured) |
 | **Kubernetes** | Pods authenticate via service account |
 | **AppRole** | Apps authenticate with role ID + secret ID |
 | **GitHub** | Users authenticate via GitHub |
-| **OIDC** | SSO via Keycloak, etc. |
 
-For homelab, token auth is fine. For production, Kubernetes auth or AppRole is better.
+### OIDC (Keycloak SSO)
+
+Configured to use Keycloak at `sso.fords.cloud`:
+
+| Role | Policy | Description |
+|------|--------|-------------|
+| `default` | default | Basic read access |
+| `admin` | admin | Full access |
+
+**To login via UI:**
+1. Go to https://vault.fords.cloud
+2. Method: **OIDC**
+3. Role: `admin`
+4. Click "Sign in with OIDC"
+5. Authenticate with Keycloak
+
+**To login via CLI:**
+```bash
+export VAULT_ADDR=https://vault.fords.cloud
+vault login -method=oidc role=admin
+```
+
+Keycloak client credentials stored in Bitwarden: "Vault OIDC Client (Keycloak)"
 
 ## Recovery
 
