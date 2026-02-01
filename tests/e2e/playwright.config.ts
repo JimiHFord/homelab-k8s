@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 // Base URLs for services - override with environment variables
+// In CI, these are set to ephemeral E2E URLs (e.g., vault-e2e-12345.fords.cloud)
 const BASE_URLS = {
   vault: process.env.VAULT_URL || 'https://vault.fords.cloud',
   keycloak: process.env.KEYCLOAK_URL || 'https://sso.fords.cloud',
@@ -12,6 +13,9 @@ const BASE_URLS = {
   grafana: process.env.GRAFANA_URL || 'https://grafana.fords.cloud',
   forgejo: process.env.FORGEJO_URL || 'https://forgejo.fords.cloud',
 };
+
+// For E2E tests, Vault uses dev mode with a known root token
+const VAULT_DEV_TOKEN = process.env.VAULT_DEV_TOKEN || 'e2e-root-token';
 
 export { BASE_URLS };
 

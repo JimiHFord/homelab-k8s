@@ -1,0 +1,277 @@
+name: Full E2E Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      keep_infra:
+        description: 'Keep infrastructure after tests (for debugging)'
+        required: false
+        default: 'false'
+        type: boolean
+  
+  # Nightly at 3 AM EST
+  schedule:
+    - cron: '0 8 * * *'
+
+env:
+  # Unique ID for this run's resources
+  RUN_ID: ${{ github.run_id }}
+  TUNNEL_NAME: homelab-e2e-${{ github.run_id }}
+  DOMAIN: fords.cloud
+  
+  # Test URLs (ephemeral per run)
+  VAULT_URL: https://vault-e2e-${{ github.run_id }}.fords.cloud
+  KEYCLOAK_URL: https://sso-e2e-${{ github.run_id }}.fords.cloud
+  LLDAP_URL: https://ldap-e2e-${{ github.run_id }}.fords.cloud
+  GRAFANA_URL: https://grafana-e2e-${{ github.run_id }}.fords.cloud
+  FORGEJO_URL: https://forgejo-e2e-${{ github.run_id }}.fords.cloud
+
+jobs:
+  e2e-test:
+    name: E2E Infrastructure Test
+    runs-on: homelab  # Uses our Mac mini runner
+    timeout-minutes: 60
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup tools
+        run: |
+          # Verify required tools
+          which tofu || (echo "OpenTofu not found" && exit 1)
+          which kubectl || (echo "kubectl not found" && exit 1)
+          which cloudflared || brew install cloudflared
+          
+          # Install Playwright
+          cd tests/e2e
+          npm ci
+          npx playwright install chromium
+
+      - name: Create ephemeral tunnel
+        id: tunnel
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+        run: |
+          # Create tunnel
+          echo "Creating tunnel: $TUNNEL_NAME"
+          TUNNEL_SECRET=$(openssl rand -hex 32)
+          
+          TUNNEL_RESPONSE=$(curl -s -X POST \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/cfd_tunnel" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"name\": \"${TUNNEL_NAME}\", \"tunnel_secret\": \"$(echo -n $TUNNEL_SECRET | base64)\"}")
+          
+          TUNNEL_ID=$(echo $TUNNEL_RESPONSE | jq -r '.result.id')
+          TUNNEL_TOKEN=$(echo $TUNNEL_RESPONSE | jq -r '.result.token')
+          
+          if [ "$TUNNEL_ID" = "null" ] || [ -z "$TUNNEL_ID" ]; then
+            echo "Failed to create tunnel:"
+            echo $TUNNEL_RESPONSE | jq .
+            exit 1
+          fi
+          
+          echo "tunnel_id=$TUNNEL_ID" >> $GITHUB_OUTPUT
+          echo "tunnel_token=$TUNNEL_TOKEN" >> $GITHUB_OUTPUT
+          
+          # Create DNS records for each service
+          for svc in vault-e2e sso-e2e ldap-e2e grafana-e2e forgejo-e2e; do
+            HOSTNAME="${svc}-${RUN_ID}.${DOMAIN}"
+            echo "Creating DNS: $HOSTNAME -> $TUNNEL_ID.cfargotunnel.com"
+            
+            curl -s -X POST \
+              "https://api.cloudflare.com/client/v4/zones/${CLOUDFLARE_ZONE_ID}/dns_records" \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"type\": \"CNAME\",
+                \"name\": \"${svc}-${RUN_ID}\",
+                \"content\": \"${TUNNEL_ID}.cfargotunnel.com\",
+                \"proxied\": true,
+                \"ttl\": 1
+              }" | jq -r '.result.id'
+          done
+
+      - name: Start test VM
+        id: vm
+        run: |
+          # Use the QEMU VM for isolated testing
+          VM_DIR=~/VMs/homelab-test/instances/homelab-test
+          
+          # Start VM if not running
+          if ! tmux has-session -t homelab-vm 2>/dev/null; then
+            $VM_DIR/start-daemon.sh || tmux new-session -d -s homelab-vm "$VM_DIR/start.sh"
+          fi
+          
+          # Wait for SSH
+          for i in {1..30}; do
+            if ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=accept-new -p 2222 jimi@localhost "echo ok" 2>/dev/null; then
+              echo "VM ready"
+              break
+            fi
+            echo "Waiting for VM... ($i/30)"
+            sleep 5
+          done
+          
+          # Get kubeconfig
+          ssh -p 2222 jimi@localhost "sudo cat /etc/rancher/k3s/k3s.yaml" > ~/.kube/e2e-test.yaml
+          export KUBECONFIG=~/.kube/e2e-test.yaml
+          
+          kubectl get nodes
+          echo "kubeconfig=$HOME/.kube/e2e-test.yaml" >> $GITHUB_OUTPUT
+
+      - name: Deploy infrastructure
+        env:
+          KUBECONFIG: ${{ steps.vm.outputs.kubeconfig }}
+          TUNNEL_TOKEN: ${{ steps.tunnel.outputs.tunnel_token }}
+          TUNNEL_ID: ${{ steps.tunnel.outputs.tunnel_id }}
+        run: |
+          cd terraform/e2e
+          
+          # Initialize OpenTofu
+          tofu init
+          
+          # Apply infrastructure
+          tofu apply -auto-approve \
+            -var "tunnel_token=${TUNNEL_TOKEN}" \
+            -var "tunnel_id=${TUNNEL_ID}" \
+            -var "run_id=${RUN_ID}" \
+            -var "domain=${DOMAIN}" \
+            -var "keycloak_admin_password=${{ secrets.TEST_KEYCLOAK_PASSWORD }}" \
+            -var "lldap_admin_password=${{ secrets.TEST_LLDAP_PASSWORD }}"
+
+      - name: Wait for services
+        env:
+          KUBECONFIG: ${{ steps.vm.outputs.kubeconfig }}
+        run: |
+          echo "Waiting for all services to be ready..."
+          
+          # Wait for deployments
+          for ns in vault keycloak lldap grafana; do
+            echo "Waiting for $ns..."
+            kubectl wait --for=condition=available deployment --all -n $ns --timeout=300s || true
+          done
+          
+          # Wait for tunnel connectivity
+          for url in "$VAULT_URL" "$KEYCLOAK_URL" "$LLDAP_URL" "$GRAFANA_URL"; do
+            echo "Checking $url..."
+            for i in {1..30}; do
+              if curl -s -o /dev/null -w "%{http_code}" "$url" | grep -q "200\|302\|301"; then
+                echo "$url is ready"
+                break
+              fi
+              sleep 10
+            done
+          done
+
+      - name: Run E2E tests
+        env:
+          TEST_PASSWORD: ${{ secrets.TEST_KEYCLOAK_PASSWORD }}
+          LLDAP_ADMIN_PASSWORD: ${{ secrets.TEST_LLDAP_PASSWORD }}
+        run: |
+          cd tests/e2e
+          
+          # Run smoke tests first
+          npx playwright test --project=smoke || true
+          
+          # Run full tests
+          npx playwright test --project=chromium
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ github.run_id }}
+          path: |
+            tests/e2e/test-results/
+            tests/e2e/playwright-report/
+          retention-days: 30
+
+      # CLEANUP - Always runs, even on failure
+      - name: Cleanup infrastructure
+        if: always() && inputs.keep_infra != 'true'
+        env:
+          KUBECONFIG: ${{ steps.vm.outputs.kubeconfig }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+          TUNNEL_ID: ${{ steps.tunnel.outputs.tunnel_id }}
+        run: |
+          echo "=== CLEANUP STARTING ==="
+          
+          # 1. Destroy Terraform resources
+          cd terraform/e2e
+          tofu destroy -auto-approve \
+            -var "tunnel_token=unused" \
+            -var "tunnel_id=${TUNNEL_ID}" \
+            -var "run_id=${RUN_ID}" \
+            -var "domain=${DOMAIN}" \
+            -var "keycloak_admin_password=unused" \
+            -var "lldap_admin_password=unused" || true
+          
+          # 2. Delete DNS records
+          echo "Deleting DNS records..."
+          for svc in vault-e2e sso-e2e ldap-e2e grafana-e2e forgejo-e2e; do
+            HOSTNAME="${svc}-${RUN_ID}"
+            
+            # Find and delete the DNS record
+            RECORD_ID=$(curl -s -X GET \
+              "https://api.cloudflare.com/client/v4/zones/${CLOUDFLARE_ZONE_ID}/dns_records?name=${HOSTNAME}.${DOMAIN}" \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" | jq -r '.result[0].id')
+            
+            if [ "$RECORD_ID" != "null" ] && [ -n "$RECORD_ID" ]; then
+              echo "Deleting DNS record: $HOSTNAME ($RECORD_ID)"
+              curl -s -X DELETE \
+                "https://api.cloudflare.com/client/v4/zones/${CLOUDFLARE_ZONE_ID}/dns_records/${RECORD_ID}" \
+                -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"
+            fi
+          done
+          
+          # 3. Delete tunnel
+          if [ -n "$TUNNEL_ID" ] && [ "$TUNNEL_ID" != "null" ]; then
+            echo "Deleting tunnel: $TUNNEL_ID"
+            
+            # Force cleanup any connections first
+            curl -s -X DELETE \
+              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/cfd_tunnel/${TUNNEL_ID}/connections" \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" || true
+            
+            # Delete tunnel
+            curl -s -X DELETE \
+              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/cfd_tunnel/${TUNNEL_ID}" \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"
+          fi
+          
+          # 4. Clean up VM namespaces (optional - for fresh slate)
+          kubectl delete ns vault keycloak lldap grafana cloudflared --ignore-not-found || true
+          
+          echo "=== CLEANUP COMPLETE ==="
+
+      - name: Verify cleanup
+        if: always() && inputs.keep_infra != 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+        run: |
+          echo "Verifying cleanup..."
+          
+          # Check no DNS records remain
+          for svc in vault-e2e sso-e2e ldap-e2e grafana-e2e forgejo-e2e; do
+            HOSTNAME="${svc}-${RUN_ID}.${DOMAIN}"
+            RESULT=$(curl -s "https://api.cloudflare.com/client/v4/zones/${CLOUDFLARE_ZONE_ID}/dns_records?name=${HOSTNAME}" \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" | jq '.result | length')
+            
+            if [ "$RESULT" != "0" ]; then
+              echo "WARNING: DNS record still exists: $HOSTNAME"
+            else
+              echo "✓ $HOSTNAME cleaned up"
+            fi
+          done
