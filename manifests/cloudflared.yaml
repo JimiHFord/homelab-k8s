@@ -27,6 +27,10 @@ data:
         service: http://host.docker.internal:18789
       - hostname: forgejo.fords.cloud
         service: http://forgejo-gitea-http.forgejo.svc.cluster.local:3000
+      - hostname: grafana.fords.cloud
+        service: http://grafana.grafana.svc.cluster.local:3000
+      - hostname: vault.fords.cloud
+        service: http://vault.vault.svc.cluster.local:8200
       - service: http_status:404
 ---
 apiVersion: apps/v1
